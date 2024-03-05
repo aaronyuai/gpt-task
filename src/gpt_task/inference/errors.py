@@ -2,13 +2,16 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Callable, Iterable, Type, TypeVar
 
-import torch.cuda
 from huggingface_hub.utils import (GatedRepoError, LocalEntryNotFoundError,
                                    RepositoryNotFoundError,
                                    RevisionNotFoundError)
 from pydantic import ValidationError
 from requests import ConnectionError, HTTPError
 from typing_extensions import ParamSpec
+
+from gpt_task import config
+if config.get_platform() == config.Platform.LINUX_CUDA:
+    import torch.cuda
 
 __all__ = [
     "wrap_error",
@@ -61,8 +64,7 @@ def match_exception(e: Exception, targets: Iterable[Type[Exception]]) -> bool:
     return False
 
 
-@contextmanager
-def error_context():
+def _cuda_error_context():
     try:
         yield
     except ValidationError as e:
@@ -92,6 +94,42 @@ def error_context():
             raise TaskExecutionError from e
     except Exception as e:
         raise TaskExecutionError from e
+
+
+def _macos_error_context():
+    try:
+        yield
+    except ValidationError as e:
+        raise TaskArgsInvalid from e
+    except EnvironmentError as e:
+        if match_exception(e, [LocalEntryNotFoundError]):
+            raise ModelDownloadError from e
+        elif match_exception(
+            e,
+            [
+                RepositoryNotFoundError,
+                RevisionNotFoundError,
+                GatedRepoError,
+            ],
+        ):
+            raise ModelInvalid from e
+        elif match_exception(e, [HTTPError, ConnectionError]):
+            raise ModelDownloadError from e
+        else:
+            raise TaskExecutionError from e
+    except Exception as e:
+        raise TaskExecutionError from e
+
+
+@contextmanager
+def error_context():
+    platform = config.get_platform()
+    if platform == utils.Platform.LINUX_CUDA:
+        return _cuda_error_context()
+    elif platform == utils.Platform.MACOS_MPS:
+        return _macos_error_context()
+    else:
+        raise TaskExecutionError(f"Unsupported platform: {platform}")
 
 
 T = TypeVar("T")

@@ -1,5 +1,7 @@
+import enum
 import os
-from typing import Any, Dict, List, Tuple, Type
+import platform
+from typing import Any, Dict, List, Tuple, Type, Union
 
 import yaml
 from pydantic import BaseModel
@@ -115,3 +117,28 @@ def get_config() -> Config:
         _default_config = Config()  # type: ignore
 
     return _default_config
+
+
+class Platform(enum.Enum):
+    UNKNONW = 0
+    LINUX_CUDA = 1
+    MACOS_MPS = 2
+
+def get_platform() -> Union[Platform, str]:
+    res = platform.system()
+    if res == "Linux":
+        return Platform.LINUX_CUDA
+    elif res == "Darwin":
+        return Platform.MACOS_MPS
+    else:
+        return res
+
+def get_accelerator():
+    platform = get_platform()    
+    if platform == Platform.LINUX_CUDA:
+        return "cuda"
+    elif platform == Platform.MACOS_MPS:
+        return "mps"
+    else:
+        return "cpu"
+
